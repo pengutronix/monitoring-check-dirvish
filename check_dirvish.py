@@ -21,12 +21,6 @@ except ImportError as e:
     print("Please install python3-dateutil")
     raise e
 
-try:
-    import pyparsing
-except ImportError as e:
-    print("Please install python3-pyparsing")
-    raise e
-
 
 _log = logging.getLogger('nagiosplugin')
 
