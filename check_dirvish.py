@@ -132,16 +132,16 @@ class Backup(nagiosplugin.Resource):
             if self.duration is None:
                 self.duration = round(dur.total_seconds() / 3600., 2)
                 _log.info('Gathered last duration to %s hours', self.duration)
-            if self.age_try is None:
+            if self.last_try is None:
                 age = datetime.datetime.now() - begin
-                self.age_try = round(age.total_seconds() / (24*60*60.), 2)
-                _log.info('Gathered age_try to %s days', self.age_try)
+                self.last_try = round(age.total_seconds() / (24*60*60.), 2)
+                _log.info('Gathered last_try to %s days', self.last_try)
             if parsed_backup['status'].casefold() == "success":
                 if self.age_success is None:
                     age = datetime.datetime.now() - begin
                     self.age_success = round(age.total_seconds() / (24*60*60.), 2)
                     _log.info('Gathered age_success to %s days', self.age_success)
-            if self.duration and self.age_try and self.age_success:
+            if self.duration and self.last_try and self.age_success:
                 _log.info('I have all required Informations. Exiting backup loop')
                 break
 
@@ -150,17 +150,17 @@ class Backup(nagiosplugin.Resource):
         """Create check metric for Backups
 
         'age_success' is the metric for the lastsuccessful backup
-        'age_try' is the metric for the last try
+        'last_try' is the metric for the last try
         'duraction' is the metric for the duration of the last backup
         """
         self.duration = None
-        self.age_try = None
+        self.last_try = None
         self.age_success = None
 
         self.check_backups()
 
         yield nagiosplugin.Metric('age_success', self.age_success, min=0)
-        yield nagiosplugin.Metric('age_try', self.age_try, min=0)
+        yield nagiosplugin.Metric('last_try', self.last_try, min=0)
         yield nagiosplugin.Metric('duration', self.duration, min=0)
 
 
@@ -194,7 +194,7 @@ def main():
         Backup(args.vault, args.base_path),
         nagiosplugin.ScalarContext('age_success', args.warning, args.critical,
                                    fmt_metric='Last successful backup is {value} days old'),
-        nagiosplugin.ScalarContext('age_try', args.warning, args.critical,
+        nagiosplugin.ScalarContext('last_try', args.warning, args.critical,
                                    fmt_metric='Last backup tried {value} days ago'),
         nagiosplugin.ScalarContext('duration', args.warning, args.critical,
                                    fmt_metric='Last run took {value} hours'),
