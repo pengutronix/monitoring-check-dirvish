@@ -31,7 +31,7 @@ class E_PathNotAccessible(Exception):
     def __str__(self):
         return "Basepath %r is not accessible" %repr(self.value)
 
-class E_BasePathNoDir(Exception):
+class E_PathNoDir(Exception):
     def __init__(self, value):
         self.value = value
     def __str__(self):
@@ -61,7 +61,7 @@ class Backup(nagiosplugin.Resource):
         if not os.access(directory, os.R_OK | os.X_OK):
             raise E_PathNotAccessible(directory)
         if not os.path.isdir(directory):
-            raise E_BasePathNoDir(directory)
+            raise E_PathNoDir(directory)
         return
         
     def backups(self):
