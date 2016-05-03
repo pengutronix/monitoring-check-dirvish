@@ -69,7 +69,7 @@ class Backup(nagiosplugin.Resource):
         if not os.path.isdir(directory):
             raise E_PathNoDir(directory)
         return
-        
+
     def backups(self):
         """Returns a backups List with a dictionary to every Backupattempt"""
         _log.debug('Finding the latest backup for vault "%s"', self.vault)
@@ -89,7 +89,7 @@ class Backup(nagiosplugin.Resource):
                 image = dict()
                 image['image'] = last_entry.split('\t')[0]
                 image['histfile'] = True
-                _log.info("Found next backup in %r", image['image']) 
+                _log.info("Found next backup in %r", image['image'])
             except Exception as e:
                 _log.error("Something unexpected happened, while reading file %r", self.history_file)
                 next
@@ -132,24 +132,24 @@ class Backup(nagiosplugin.Resource):
             except E_PathNotAccessible as e:
                 _log.debug("Exception thrown: %s", e)
                 continue
-            begin = dateutil.parser.parse(parsed_backup['backup-begin']) 
+            begin = dateutil.parser.parse(parsed_backup['backup-begin'])
             _log.debug("Backup begin %r to %r", parsed_backup['backup-begin'], begin)
-            end = dateutil.parser.parse(parsed_backup['backup-complete']) 
+            end = dateutil.parser.parse(parsed_backup['backup-complete'])
             _log.debug("Backup end %r to %r", parsed_backup['backup-complete'], end)
             dur = end - begin
             _log.debug("Duration is: %s", dur)
             if self.duration is None:
-                self.duration = round(dur.total_seconds() / 3600., 2)
-                _log.info('Gathered last duration to %s hours', self.duration)
+                self.duration = dur.total_seconds()
+                _log.info('Gathered last duration to %s hours', dur)
             if self.last_try is None:
                 age = datetime.datetime.now() - begin
-                self.last_try = round(age.total_seconds() / (24*60*60.), 2)
-                _log.info('Gathered last_try to %s days', self.last_try)
+                self.last_try = age.total_seconds()
+                _log.info('Gathered last_try to %s days', age)
             if parsed_backup['status'].casefold() == "success":
                 if self.last_success is None:
                     age = datetime.datetime.now() - begin
-                    self.last_success = round(age.total_seconds() / (24*60*60.), 2)
-                    _log.info('Gathered last_success to %s days', self.last_success)
+                    self.last_success = age.total_seconds()
+                    _log.info('Gathered last_success to %s', age)
             if self.duration and self.last_try and self.last_success:
                 _log.info('I have all required Informations. Exiting backup loop')
                 break
@@ -168,27 +168,72 @@ class Backup(nagiosplugin.Resource):
 
         self.check_backups()
 
-        yield nagiosplugin.Metric('last_success', self.last_success, uom='d', min=0)
-        yield nagiosplugin.Metric('last_try', self.last_try, uom='d', min=0)
-        yield nagiosplugin.Metric('duration', self.duration, uom='h', min=0)
+        yield nagiosplugin.Metric('last_success', self.last_success, uom='s', min=0)
+        yield nagiosplugin.Metric('last_try', self.last_try, uom='s', min=0)
+        yield nagiosplugin.Metric('duration', self.duration, uom='s', min=0)
 
+class Duration_Fmt_Metric(object):
+    """ this class only use is to format a metric containing timedeltas
+        to print a human readable output like 7:30 or 6Y7d. """
 
-class BackupSummary(nagiosplugin.Summary):
-    """Create status line and long output.  """
+    def __init__(self, fmt_string):
+        self.fmt_string = fmt_string
 
-    def verbose(self, results):
-        super(BackupSummary, self).verbose(results)
-        #if 'total' in results:
-        #    return 'users: ' + ', '.join(results['total'].resource.users)
+    @staticmethod
+    def seconds_human_readable(seconds):
+        year   = 60*60*24*365
+        month  = 60*60*24*30
+        day    = 60*60*24
+        hour   = 60*60
+        minute = 60
+
+        string = ""
+        remaining_unitcount = 2
+        years, remain = divmod(seconds, year)
+        if years > 0:
+            string += "%sY" % years
+            seconds = remain
+            remaining_unitcount -= 1
+            if remaining_unitcount <=0:
+                 return string
+        months, remain = divmod(seconds, month)
+        if months > 2:
+            string += "%sM" % months
+            seconds = remain
+            remaining_unitcount -= 1
+            if remaining_unitcount <=0:
+                 return string
+        days, remain = divmod(seconds, day)
+        if days > 0:
+            string += "%sd" % days
+            seconds = remain
+            remaining_unitcount -= 1
+            if remaining_unitcount <=0:
+                 return string
+        hours, seconds = divmod(seconds, hour)
+        minutes, seconds = divmod(seconds, minute)
+        if remaining_unitcount > 1:
+            string += "{0:0>2}h{1:0>2}".format(hours, minutes)
+        else:
+            string += "{0:0>2}h".format(hours)
+        assert seconds < 60
+        return string
+
+    def __call__(self, metric, context):
+        assert metric.uom == "s"
+        valueunit = self.seconds_human_readable(int(metric.value))
+        return self.fmt_string.format(
+            name=metric.name, value=metric.value, uom=metric.uom,
+            valueunit=valueunit, min=metric.min, max=metric.max)
 
 
 @nagiosplugin.guarded
 def main():
     argp = argparse.ArgumentParser()
     argp.add_argument('-w', '--warning', metavar='RANGE',
-                      help='warning if backup age is outside RANGE'),
+                      help='warning if backup age is outside RANGE in seconds'),
     argp.add_argument('-c', '--critical', metavar='RANGE',
-                      help='critical if backup age is outside RANGE')
+                      help='critical if backup age is outside RANGE in seconds')
     argp.add_argument('-v', '--verbose', action='count', default=0,
                       help='increase output verbosity (use up to 3 times)')
     argp.add_argument('-t', '--timeout', default=10,
@@ -196,18 +241,17 @@ def main():
     argp.add_argument('--base-path', default="/srv/backup/",
                       help="Path to the bank of the vault (/srv/backup)")
     argp.add_argument('--max-duration', default=12.0, metavar='RANGE',
-                      help="max time in hours to take a backup (12.0)")
+                      help="max time in hours to take a backup (12.0) in seconds")
     argp.add_argument('vault', help='Name of the vault to check')
     args = argp.parse_args()
     check = nagiosplugin.Check(
         Backup(args.vault, args.base_path),
         nagiosplugin.ScalarContext('last_success', args.warning, args.critical,
-                                   fmt_metric='Last successful backup is {valueunit} old'),
+                                   Duration_Fmt_Metric('Last successful backup is {valueunit} old')),
         nagiosplugin.ScalarContext('last_try', args.warning, args.critical,
-                                   fmt_metric='Last backup tried {valueunit} ago'),
+                                   Duration_Fmt_Metric('Last backup tried {valueunit} ago')),
         nagiosplugin.ScalarContext('duration', args.warning, args.critical,
-                                   fmt_metric='Last backuprun took {valueunit}'),
-        BackupSummary())
+                                   Duration_Fmt_Metric('Last backuprun took {valueunit}')))
     check.main(args.verbose, args.timeout)
 
 if __name__ == '__main__':
