@@ -65,13 +65,14 @@ class Backup(nagiosplugin.Resource):
         return
         
     def backups(self):
-        """Returns the path to the latest backup"""
+        """Returns a backups List with a dictionary to every Backupattempt"""
         _log.debug('Finding the latest backup for vault "%s"', self.vault)
         self.check_path_accessible(self.base_path)
         self.vault_base_path = os.path.join(self.base_path, self.vault)
         self.check_path_accessible(self.vault_base_path)
         self.history_file = os.path.join(self.vault_base_path, 'dirvish', 'default.hist')
         _log.debug('Check for %r' % self.history_file)
+        resultL = list()
         if not os.access(self.history_file, os.R_OK):
             raise E_HistoryFileNotFound(self.history_file)
         with open(self.history_file) as histfile:
@@ -79,12 +80,14 @@ class Backup(nagiosplugin.Resource):
         for entry in reversed(lines):
             try:
                 last_entry = entry.strip()
-                backup = dict(zip(['image', 'created', 'reference', 'expires'], last_entry.split('\t')))
-                _log.info("Found next backup in %r", backup) 
+                image = dict()
+                image['image'] = last_entry.split('\t')[0]
+                image['histfile'] = True
+                _log.info("Found next backup in %r", image['image']) 
             except Exception as e:
                 _log.error("Something unexpected happened, while reading file %r", self.history_file)
                 next
-            yield(backup['image'])
+            yield(image['image'])
 
     def parse_backup(self, backup, parameterL = ['status', 'backup-begin', 'backup-complete']):
         """ Check the last backup for validity.
@@ -159,9 +162,9 @@ class Backup(nagiosplugin.Resource):
 
         self.check_backups()
 
-        yield nagiosplugin.Metric('last_success', self.last_success, min=0)
-        yield nagiosplugin.Metric('last_try', self.last_try, min=0)
-        yield nagiosplugin.Metric('duration', self.duration, min=0)
+        yield nagiosplugin.Metric('last_success', self.last_success, uom='d', min=0)
+        yield nagiosplugin.Metric('last_try', self.last_try, uom='d', min=0)
+        yield nagiosplugin.Metric('duration', self.duration, uom='h', min=0)
 
 
 class BackupSummary(nagiosplugin.Summary):
@@ -186,18 +189,18 @@ def main():
                       help='abort execution after TIMEOUT seconds')
     argp.add_argument('--base-path', default="/srv/backup/",
                       help="Path to the bank of the vault (/srv/backup)")
-    argp.add_argument('--max-duration', default=12.0,
+    argp.add_argument('--max-duration', default=12.0, metavar='RANGE',
                       help="max time in hours to take a backup (12.0)")
     argp.add_argument('vault', help='Name of the vault to check')
     args = argp.parse_args()
     check = nagiosplugin.Check(
         Backup(args.vault, args.base_path),
         nagiosplugin.ScalarContext('last_success', args.warning, args.critical,
-                                   fmt_metric='Last successful backup is {value} days old'),
+                                   fmt_metric='Last successful backup of %s is {valueunit} old' % args.vault),
         nagiosplugin.ScalarContext('last_try', args.warning, args.critical,
-                                   fmt_metric='Last backup tried {value} days ago'),
+                                   fmt_metric='Last backup of %s tried {valueunit} ago' % args.vault),
         nagiosplugin.ScalarContext('duration', args.warning, args.critical,
-                                   fmt_metric='Last run took {value} hours'),
+                                   fmt_metric='Last backuprun of %s took {valueunit}' % args.vault),
         BackupSummary())
     check.main(args.verbose, args.timeout)
 
