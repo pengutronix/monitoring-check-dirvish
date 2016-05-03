@@ -56,6 +56,12 @@ class Backup(nagiosplugin.Resource):
         self.vault = vault
         self.base_path = base_path
 
+    @property
+    def name(self):
+        """formatting the Testname (will be formatted as uppercase letters)"""
+        return "%s %s" % (self.__class__.__name__, self.vault.split('.')[0])
+
+
     def check_path_accessible(self, directory):
         _log.debug("Check if %r is accessible and a directory", directory)
         if not os.access(directory, os.R_OK | os.X_OK):
@@ -196,11 +202,11 @@ def main():
     check = nagiosplugin.Check(
         Backup(args.vault, args.base_path),
         nagiosplugin.ScalarContext('last_success', args.warning, args.critical,
-                                   fmt_metric='Last successful backup of %s is {valueunit} old' % args.vault),
+                                   fmt_metric='Last successful backup is {valueunit} old'),
         nagiosplugin.ScalarContext('last_try', args.warning, args.critical,
-                                   fmt_metric='Last backup of %s tried {valueunit} ago' % args.vault),
+                                   fmt_metric='Last backup tried {valueunit} ago'),
         nagiosplugin.ScalarContext('duration', args.warning, args.critical,
-                                   fmt_metric='Last backuprun of %s took {valueunit}' % args.vault),
+                                   fmt_metric='Last backuprun took {valueunit}'),
         BackupSummary())
     check.main(args.verbose, args.timeout)
 
