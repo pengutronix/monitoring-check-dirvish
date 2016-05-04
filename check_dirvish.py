@@ -240,8 +240,8 @@ def main():
                       help='abort execution after TIMEOUT seconds')
     argp.add_argument('--base-path', default="/srv/backup/",
                       help="Path to the bank of the vault (/srv/backup)")
-    argp.add_argument('--max-duration', default=12.0, metavar='RANGE',
-                      help="max time in hours to take a backup (12.0) in seconds")
+    argp.add_argument('--max-duration', default=3600, metavar='RANGE',
+                      help="max time in hours to take a backup (3600) in seconds")
     argp.add_argument('vault', help='Name of the vault to check')
     args = argp.parse_args()
     check = nagiosplugin.Check(
@@ -250,8 +250,9 @@ def main():
                                    Duration_Fmt_Metric('Last successful backup is {valueunit} old')),
         nagiosplugin.ScalarContext('last_try', args.warning, args.critical,
                                    Duration_Fmt_Metric('Last backup tried {valueunit} ago')),
-        nagiosplugin.ScalarContext('duration', args.warning, args.critical,
-                                   Duration_Fmt_Metric('Last backuprun took {valueunit}')))
+        nagiosplugin.ScalarContext( name = 'duration',
+                                    critical = args.max_duration,
+                                    fmt_metric = Duration_Fmt_Metric('Last backuprun took {valueunit}')))
     check.main(args.verbose, args.timeout)
 
 if __name__ == '__main__':
