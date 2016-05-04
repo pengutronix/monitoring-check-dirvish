@@ -71,29 +71,37 @@ class Backup(nagiosplugin.Resource):
         return
 
     def backups(self):
-        """Returns a backups List with a dictionary to every Backupattempt"""
+        """Returns a iterable of backup-sub-directories"""
         _log.debug('Finding the latest backup for vault "%s"', self.vault)
         self.check_path_accessible(self.base_path)
         self.vault_base_path = os.path.join(self.base_path, self.vault)
         self.check_path_accessible(self.vault_base_path)
         self.history_file = os.path.join(self.vault_base_path, 'dirvish', 'default.hist')
         _log.debug('Check for %r' % self.history_file)
-        resultL = list()
-        if not os.access(self.history_file, os.R_OK):
-            raise E_HistoryFileNotFound(self.history_file)
-        with open(self.history_file) as histfile:
-            lines = histfile.readlines()
-        for entry in reversed(lines):
-            try:
-                last_entry = entry.strip()
-                image = dict()
-                image['image'] = last_entry.split('\t')[0]
-                image['histfile'] = True
-                _log.info("Found next backup in %r", image['image'])
-            except Exception as e:
-                _log.error("Something unexpected happened, while reading file %r", self.history_file)
-                next
-            yield(image['image'])
+        resultS = set()
+        if os.access(self.history_file, os.R_OK):
+            with open(self.history_file) as histfile:
+                lines = histfile.readlines()[1:]
+            for entry in reversed(lines):
+                try:
+                    last_entry = entry.strip()
+                    image = last_entry.split('\t')[0]
+                    _log.info("Found next backup in %r", image)
+                except Exception as e:
+                    _log.error("Something unexpected happened, while reading file %r", self.history_file)
+                    next
+                resultS.add(image)
+        for dirname, dirnames, filenames in os.walk(self.vault_base_path):
+            _log.info("Adding directories in %r", self.vault_base_path)
+            # files that should be in every dirvish backup directory:
+            mustHaveS = {'log', 'summary', 'tree'}
+            for directory in dirnames:
+                dirCont = set(os.listdir(os.path.join(self.vault_base_path, directory)))
+                if mustHaveS.issubset(dirCont):
+                    resultS.add(directory)
+            dirnames.clear()
+        _log.info("Found possible backups: %r", resultS)
+        return resultS
 
     def parse_backup(self, backup, parameterL = ['status', 'backup-begin', 'backup-complete']):
         """ Check the last backup for validity.
@@ -126,7 +134,8 @@ class Backup(nagiosplugin.Resource):
         return _resultD
 
     def check_backups(self):
-        for backup in self.backups():
+        backups = self.backups()
+        for backup in reversed(sorted(backups)):
             try:
                 parsed_backup = self.parse_backup(backup, ['status', 'backup-begin', 'backup-complete'])
             except E_PathNotAccessible as e:
@@ -153,6 +162,7 @@ class Backup(nagiosplugin.Resource):
             if self.duration and self.last_try and self.last_success:
                 _log.info('I have all required Informations. Exiting backup loop')
                 break
+
 
 
     def probe(self):
