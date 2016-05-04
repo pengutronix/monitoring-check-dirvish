@@ -49,12 +49,27 @@ class E_BackupNotValid(Exception):
     def __str__(self):
         return "Backup is not valid. %s" % (self.value)
 
+class E_VaultIsNotDirvishDirectory(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return "Dirvish config in %r not found!" %repr(self.value)
+
+class E_FileNotAccessible(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return "File %r is not accessible" %repr(self.value)
+
 class Backup(nagiosplugin.Resource):
     """Domain model: Dirvish vaults"""
 
     def __init__(self, vault, base_path):
         self.vault = vault
         self.base_path = base_path
+        self.vault_base_path = os.path.join(self.base_path, self.vault)
+        self.valid_backup_found = 0
+        self.backup_running_now = 0
 
     @property
     def name(self):
@@ -70,12 +85,15 @@ class Backup(nagiosplugin.Resource):
             raise E_PathNoDir(directory)
         return
 
+    def check_file_accessible(self, filename):
+        _log.debug("Check if %r is accessible", filename)
+        if not os.access(filename, os.R_OK):
+            raise E_FileNotAccessible(filename)
+        return
+
     def backups(self):
         """Returns a iterable of backup-sub-directories"""
         _log.debug('Finding the latest backup for vault "%s"', self.vault)
-        self.check_path_accessible(self.base_path)
-        self.vault_base_path = os.path.join(self.base_path, self.vault)
-        self.check_path_accessible(self.vault_base_path)
         self.history_file = os.path.join(self.vault_base_path, 'dirvish', 'default.hist')
         _log.debug('Check for %r' % self.history_file)
         resultS = set()
@@ -135,6 +153,9 @@ class Backup(nagiosplugin.Resource):
 
     def check_backups(self):
         backups = self.backups()
+        if len(backups) == 0:
+            self.valid_backup_found = 0
+            return
         for backup in reversed(sorted(backups)):
             try:
                 parsed_backup = self.parse_backup(backup, ['status', 'backup-begin', 'backup-complete'])
@@ -143,27 +164,42 @@ class Backup(nagiosplugin.Resource):
                 continue
             begin = dateutil.parser.parse(parsed_backup['backup-begin'])
             _log.debug("Backup begin %r to %r", parsed_backup['backup-begin'], begin)
+            if parsed_backup.get('backup-complete') is None:
+                # backup is probably still running or was killed hard!
+                self.backup_running_now = round((datetime.datetime.now() - begin).total_seconds())
+                continue
             end = dateutil.parser.parse(parsed_backup['backup-complete'])
-            _log.debug("Backup end %r to %r", parsed_backup['backup-complete'], end)
+            _log.debug("Backup end %r to %r", parsed_backup.get('backup-complete'), end)
             dur = end - begin
             _log.debug("Duration is: %s", dur)
             if self.duration is None:
-                self.duration = dur.total_seconds()
+                self.duration = round(dur.total_seconds())
                 _log.info('Gathered last duration to %s hours', dur)
             if self.last_try is None:
                 age = datetime.datetime.now() - begin
-                self.last_try = age.total_seconds()
+                self.last_try = round(age.total_seconds())
                 _log.info('Gathered last_try to %s days', age)
             if parsed_backup['status'].casefold() == "success":
+                _log.debug('Valid backup found: %r', backup)
+                self.valid_backup_found = 1
                 if self.last_success is None:
                     age = datetime.datetime.now() - begin
-                    self.last_success = age.total_seconds()
+                    self.last_success = round(age.total_seconds())
                     _log.info('Gathered last_success to %s', age)
             if self.duration and self.last_try and self.last_success:
                 _log.info('I have all required Informations. Exiting backup loop')
                 break
 
 
+
+    def check_valid_dirvish_vault(self):
+        _log.debug("Check if %r is a dirvish vault", self.vault)
+        dirvish_dir = os.path.join(self.vault_base_path, 'dirvish')
+        try:
+            self.check_path_accessible(dirvish_dir)
+            self.check_file_accessible(os.path.join(dirvish_dir, 'default.conf'))
+        except (E_PathNotAccessible, E_FileNotAccessible): 
+            raise E_VaultIsNotDirvishDirectory(dirvish_dir)
 
     def probe(self):
         """Create check metric for Backups
@@ -176,11 +212,26 @@ class Backup(nagiosplugin.Resource):
         self.last_try = None
         self.last_success = None
 
+        self.check_path_accessible(self.base_path)
+        self.check_path_accessible(self.vault_base_path)
+        self.check_valid_dirvish_vault()
         self.check_backups()
 
-        yield nagiosplugin.Metric('last_success', self.last_success, uom='s', min=0)
-        yield nagiosplugin.Metric('last_try', self.last_try, uom='s', min=0)
-        yield nagiosplugin.Metric('duration', self.duration, uom='s', min=0)
+        # the order of metrices matters which human readable output you'll get!
+        _log.debug('last_success is %r seconds ago <%r>', self.last_success, type(self.last_success))
+        if isinstance(self.last_success, int):
+            yield nagiosplugin.Metric('last_success', self.last_success, uom='s', min=0)
+        _log.debug('last_try is %r seconds ago, <%r>', self.last_try, type(self.last_try))
+        if isinstance(self.last_try, int):
+            yield nagiosplugin.Metric('last_try', self.last_try, uom='s', min=0)
+        _log.debug('duration is instance of: %r seconds <%r>', self.duration, type(self.duration))
+        if isinstance(self.duration, int):
+            yield nagiosplugin.Metric('duration', self.duration, uom='s', min=0)
+        _log.debug('Running backup runs for: %r seconds <%r>', self.backup_running_now, type(self.backup_running_now))
+        if self.backup_running_now:
+            yield nagiosplugin.Metric('running_backup_for', self.backup_running_now, uom='s', min=0)
+        _log.debug('Valid Backup found: %r <%r>', self.valid_backup_found, type(self.valid_backup_found))
+        yield nagiosplugin.Metric('valid_backup_found', self.valid_backup_found, min=0, max=1)
 
 class Duration_Fmt_Metric(object):
     """ this class only use is to format a metric containing timedeltas
@@ -236,6 +287,21 @@ class Duration_Fmt_Metric(object):
             name=metric.name, value=metric.value, uom=metric.uom,
             valueunit=valueunit, min=metric.min, max=metric.max)
 
+class Bool_Fmt_Metric(object):
+    """print a message for a bool-metric  """
+
+    def __init__(self, msg_success, msg_fail):
+        self.msg_success = msg_success
+        self.msg_fail = msg_fail
+
+    def __call__(self, metric, context):
+        _log.debug('UOM: %r', metric.uom)
+        if metric.value:
+            return self.msg_success
+        else:
+            return self.msg_fail
+
+
 
 @nagiosplugin.guarded
 def main():
@@ -256,13 +322,19 @@ def main():
     args = argp.parse_args()
     check = nagiosplugin.Check(
         Backup(args.vault, args.base_path),
-        nagiosplugin.ScalarContext('last_success', args.warning, args.critical,
-                                   Duration_Fmt_Metric('Last successful backup is {valueunit} old')),
-        nagiosplugin.ScalarContext('last_try', args.warning, args.critical,
-                                   Duration_Fmt_Metric('Last backup tried {valueunit} ago')),
+        nagiosplugin.ScalarContext( 'valid_backup_found', critical='0.5:1',
+                                    fmt_metric = Bool_Fmt_Metric('Valid backup found!', 'No valid Backup found!')),
+        nagiosplugin.ScalarContext( 'last_success', args.warning, args.critical,
+                                    Duration_Fmt_Metric('Last successful backup is {valueunit} old')),
+        nagiosplugin.ScalarContext( 'last_try', args.warning, args.critical,
+                                    Duration_Fmt_Metric('Last backup tried {valueunit} ago')),
         nagiosplugin.ScalarContext( name = 'duration',
-                                    critical = args.max_duration,
-                                    fmt_metric = Duration_Fmt_Metric('Last backuprun took {valueunit}')))
+                                    warning = args.max_duration,
+                                    fmt_metric = Duration_Fmt_Metric('Last backuprun took {valueunit}')),
+        nagiosplugin.ScalarContext( name = 'running_backup_for',
+                                    warning = args.max_duration,
+                                    critical = args.max_duration*3,
+                                    fmt_metric = Duration_Fmt_Metric('Running backup since {valueunit}')),)
     check.main(args.verbose, args.timeout)
 
 if __name__ == '__main__':
