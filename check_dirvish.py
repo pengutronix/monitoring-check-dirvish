@@ -8,6 +8,7 @@ import subprocess
 import os
 import datetime
 import collections
+import re
 
 try:
 	import nagiosplugin
@@ -179,7 +180,7 @@ class Backup(nagiosplugin.Resource):
                 age = datetime.datetime.now() - begin
                 self.last_try = round(age.total_seconds())
                 _log.info('Gathered last_try to %s days', age)
-            if parsed_backup['status'].casefold() == "success":
+            if Backup.status_has_errors(parsed_backup['status']):
                 _log.debug('Valid backup found: %r', backup)
                 self.valid_backup_found = 1
                 if self.last_success is None:
@@ -190,7 +191,27 @@ class Backup(nagiosplugin.Resource):
                 _log.info('I have all required Informations. Exiting backup loop')
                 break
 
-
+    @staticmethod
+    def status_has_errors(status):
+        """ this takes the status line and validates it.
+            check the gitolite code
+            status is something of: (value i have seen in dirvish code)
+                   (255) -- 
+                  success
+                  warning (24) -- file vanished on sender
+        """
+        regexp = re.compile(r"""
+                    (?P<status>\w+)? \s*              # success|warning|fatal|error|unknown
+                    (\((?P<rsyncexitcode>\d+)\))? \s* # rsync exitcode
+                    (--)? \s*                         # separator
+                    (?P<description>.*)?              # description
+                 """, re.IGNORECASE|re.VERBOSE)
+        statusD = regexp.search(status).groupdict()
+        if statusD['status'] in ['success', 'warning']:
+            return True
+        return False
+    
+    
 
     def check_valid_dirvish_vault(self):
         _log.debug("Check if %r is a dirvish vault", self.vault)
