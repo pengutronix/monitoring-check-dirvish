@@ -22,3 +22,8 @@ optional arguments:
                         Path to the bank of the vault (/srv/backup)
   --max-duration RANGE  max time in hours to take a backup (3600) in seconds
 ```
+
+# Licence
+
+The licence is BSD 0-Clause License.
+
