@@ -186,6 +186,7 @@ class Backup(nagiosplugin.Resource):
                 if self.last_success is None:
                     age = datetime.datetime.now() - begin
                     self.last_success = round(age.total_seconds())
+                    self.last_successful_backup = backup
                     _log.info('Gathered last_success to %s', age)
             if self.duration and self.last_try and self.last_success:
                 _log.info('I have all required Informations. Exiting backup loop')
