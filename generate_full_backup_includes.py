@@ -11,12 +11,20 @@ import os
 import check_dirvish
 from IPython import embed as ipy
 
+try:
+    from mako.template import Template
+    from mako import exceptions
+except ImportError as e:
+    print('please install package python3-mako')
+    raise e
+
 config = {
     'base_pathL' :['/srv/backup'],
     # all files with entries in this directory,
     # that match are ignored as possible dirvish vaults
     'blackListFileDir' : '/etc/ptx_backup/blacklist.d/',
     'blackListFileExtension' : '.list',
+    'templateFile' : '/etc/ptx_backup/template.mako',
 }
 
 log = logging.getLogger('nagiosplugin')
@@ -85,6 +93,10 @@ if __name__=='__main__':
                 if backupDir:
                     resultL.append(os.path.join(backupDir))
             dirnames.clear()
-    with open('/etc/ptx_backup/dirvish.vault.list', 'w') as file:
-        for backup_dir in sorted(resultL):
-           print('%s/**' % backup_dir, file=file)
+    with open('/etc/ptx_backup/dirvish.vault.script.sh', 'w') as file:
+        try:
+            template = Template(filename=config['templateFile'])
+            file.write(template.render(dirL=resultL, config=config))
+        except:
+            print(exceptions.text_error_template().render())
+            raise
