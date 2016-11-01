@@ -271,6 +271,9 @@ class Duration_Fmt_Metric(object):
         minute = 60
 
         string = ""
+        if seconds < 0:
+            string += '-'
+            seconds = abs(seconds)
         remaining_unitcount = 2
         years, remain = divmod(seconds, year)
         if years > 0:
