@@ -326,6 +326,19 @@ class Bool_Fmt_Metric(object):
             return self.msg_fail
 
 
+class BoolContext(nagiosplugin.context.Context):
+    """ Nagios Context describing when a bool is ok or critical """
+
+    def __init__(self, name, critical=True, fmt_metric=None, result_cls=nagiosplugin.Result):
+        super().__init__(name, fmt_metric, result_cls)
+        self.critical = critical
+
+    def evaluate(self, metric, resource):
+        if metric.value == self.critical:
+            return nagiosplugin.state.Critical
+        else:
+            return nagiosplugin.state.Ok
+
 
 @nagiosplugin.guarded
 def main():
