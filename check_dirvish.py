@@ -320,8 +320,7 @@ class Bool_Fmt_Metric(object):
         self.msg_fail = msg_fail
 
     def __call__(self, metric, context):
-        _log.debug('UOM: %r', metric.uom)
-        if metric.value:
+        if context.evaluate(metric, metric.resource) == nagiosplugin.state.Ok:
             return self.msg_success
         else:
             return self.msg_fail
