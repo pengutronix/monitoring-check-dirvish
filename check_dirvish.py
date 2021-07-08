@@ -96,6 +96,7 @@ class Backup(nagiosplugin.Resource):
         """Returns a iterable of backup-sub-directories"""
         _log.debug('Finding the latest backup for vault "%s"', self.vault)
         self.history_file = os.path.join(self.vault_base_path, 'dirvish', 'default.hist')
+        self.lock_file = os.path.join(self.vault_base_path, 'dirvish', 'lock_file')
         _log.debug('Check for %r' % self.history_file)
         resultS = set()
         if os.access(self.history_file, os.R_OK):
@@ -192,6 +193,26 @@ class Backup(nagiosplugin.Resource):
                 _log.info('I have all required Informations. Exiting backup loop')
                 break
 
+    def check_lockfile(self):
+        # there is a lockfile if a process
+        if os.path.exists(self.lock_file):
+            with open(self.lock_file) as f:
+                pid = f.read()
+                pid = pid.strip()
+            try:
+                pid = int(pid)
+            except ValueError:
+                self.lock_file_is_stale = True
+                return
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                self.lock_file_is_stale = True
+            else:
+                self.lock_file_is_stale = False
+        else:
+            self.lock_file_is_stale = False
+
     @staticmethod
     def status_has_errors(status):
         """ this takes the status line and validates it.
@@ -238,8 +259,10 @@ class Backup(nagiosplugin.Resource):
         self.check_path_accessible(self.vault_base_path)
         self.check_valid_dirvish_vault()
         self.check_backups()
+        self.check_lockfile()
 
         # the order of metrices matters which human readable output you'll get!
+        yield nagiosplugin.Metric('stale_lockfile', self.lock_file_is_stale, min=0, max=1)
         _log.debug('last_success is %r seconds ago <%r>', self.last_success, type(self.last_success))
         if isinstance(self.last_success, int):
             yield nagiosplugin.Metric('last_success', self.last_success, uom='s', min=0)
@@ -254,6 +277,7 @@ class Backup(nagiosplugin.Resource):
             yield nagiosplugin.Metric('running_backup_for', self.backup_running_now, uom='s', min=0)
         _log.debug('Valid Backup found: %r <%r>', self.valid_backup_found, type(self.valid_backup_found))
         yield nagiosplugin.Metric('valid_backup_found', self.valid_backup_found, min=0, max=1)
+
 
 class Duration_Fmt_Metric(object):
     """ this class only use is to format a metric containing timedeltas
@@ -359,6 +383,9 @@ def main():
     args = argp.parse_args()
     check = nagiosplugin.Check(
         Backup(args.vault, args.base_path),
+        BoolContext( name = 'stale_lockfile',
+                     critical = True,
+                     fmt_metric = Bool_Fmt_Metric('LockFile is OK!', 'LockFile is stale!')),
         BoolContext( 'valid_backup_found',
                      critical=False,
                      fmt_metric = Bool_Fmt_Metric('Valid backup found!', 'No valid Backup found!')),
@@ -372,7 +399,8 @@ def main():
         nagiosplugin.ScalarContext( name = 'running_backup_for',
                                     warning = args.max_duration,
                                     critical = args.max_duration*3,
-                                    fmt_metric = Duration_Fmt_Metric('Running backup since {valueunit}')),)
+                                    fmt_metric = Duration_Fmt_Metric('Running backup since {valueunit}')),
+    )
     check.main(args.verbose, args.timeout)
 
 if __name__ == '__main__':
