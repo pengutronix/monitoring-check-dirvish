@@ -359,8 +359,9 @@ def main():
     args = argp.parse_args()
     check = nagiosplugin.Check(
         Backup(args.vault, args.base_path),
-        nagiosplugin.ScalarContext( 'valid_backup_found', critical='0.5:1',
-                                    fmt_metric = Bool_Fmt_Metric('Valid backup found!', 'No valid Backup found!')),
+        BoolContext( 'valid_backup_found',
+                     critical=False,
+                     fmt_metric = Bool_Fmt_Metric('Valid backup found!', 'No valid Backup found!')),
         nagiosplugin.ScalarContext( 'last_success', args.warning, args.critical,
                                     Duration_Fmt_Metric('Last successful backup is {valueunit} old')),
         nagiosplugin.ScalarContext( 'last_try', args.warning, args.critical,
