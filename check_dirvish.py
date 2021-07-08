@@ -197,7 +197,7 @@ class Backup(nagiosplugin.Resource):
         """ this takes the status line and validates it.
             check the gitolite code
             status is something of: (value i have seen in dirvish code)
-                   (255) -- 
+                   (255) --
                   success
                   warning (24) -- file vanished on sender
         """
@@ -211,8 +211,8 @@ class Backup(nagiosplugin.Resource):
         if statusD['status'] in ['success', 'warning']:
             return True
         return False
-    
-    
+
+
 
     def check_valid_dirvish_vault(self):
         _log.debug("Check if %r is a dirvish vault", self.vault)
@@ -220,7 +220,7 @@ class Backup(nagiosplugin.Resource):
         try:
             self.check_path_accessible(dirvish_dir)
             self.check_file_accessible(os.path.join(dirvish_dir, 'default.conf'))
-        except (E_PathNotAccessible, E_FileNotAccessible): 
+        except (E_PathNotAccessible, E_FileNotAccessible):
             raise E_VaultIsNotDirvishDirectory(dirvish_dir)
 
     def probe(self):
