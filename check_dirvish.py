@@ -65,9 +65,10 @@ class E_FileNotAccessible(Exception):
 class Backup(nagiosplugin.Resource):
     """Domain model: Dirvish vaults"""
 
-    def __init__(self, vault, base_path):
+    def __init__(self, vault, base_path, branch):
         self.vault = vault
         self.base_path = base_path
+        self.branch = branch
         self.vault_base_path = os.path.join(self.base_path, self.vault)
         self.valid_backup_found = 0
         self.backup_running_now = 0
@@ -94,8 +95,8 @@ class Backup(nagiosplugin.Resource):
 
     def backups(self):
         """Returns a iterable of backup-sub-directories"""
-        _log.debug('Finding the latest backup for vault "%s"', self.vault)
-        self.history_file = os.path.join(self.vault_base_path, 'dirvish', 'default.hist')
+        _log.debug(f"Finding the latest backup for vault {self.vault} - {self.branch}")
+        self.history_file = os.path.join(self.vault_base_path, 'dirvish', f'{self.branch}.hist')
         self.lock_file = os.path.join(self.vault_base_path, 'dirvish', 'lock_file')
         _log.debug('Check for %r' % self.history_file)
         resultS = set()
@@ -111,7 +112,7 @@ class Backup(nagiosplugin.Resource):
                     _log.error("Something unexpected happened, while reading file %r", self.history_file)
                     next
                 resultS.add(image)
-        for dirname, dirnames, filenames in os.walk(self.vault_base_path):
+        for _, dirnames, _ in os.walk(self.vault_base_path):
             _log.info("Adding directories in %r", self.vault_base_path)
             # files that should be in every dirvish backup directory:
             mustHaveS = {'log', 'summary', 'tree'}
@@ -123,7 +124,7 @@ class Backup(nagiosplugin.Resource):
         _log.info("Found possible backups: %r", resultS)
         return resultS
 
-    def parse_backup(self, backup, parameterL = ['status', 'backup-begin', 'backup-complete']):
+    def parse_backup(self, backup, parameterL = ['status', 'backup-begin', 'backup-complete', 'branch']):
         """ Check the last backup for validity.
             Returns a dict with found keys in parameterL.
             All parameters are treated as caseinsensitive via str.casefold
@@ -160,9 +161,12 @@ class Backup(nagiosplugin.Resource):
             return
         for backup in reversed(sorted(backups)):
             try:
-                parsed_backup = self.parse_backup(backup, ['status', 'backup-begin', 'backup-complete'])
+                parsed_backup = self.parse_backup(backup, ['status', 'backup-begin', 'backup-complete', 'branch'])
             except E_PathNotAccessible as e:
                 _log.debug("Exception thrown: %s", e)
+                continue
+            # ignore backup if it is the wrong branch
+            if parsed_backup.get('branch') != self.branch:
                 continue
             begin = dateutil.parser.parse(parsed_backup['backup-begin'])
             _log.debug("Backup begin %r to %r", parsed_backup['backup-begin'], begin)
@@ -240,7 +244,7 @@ class Backup(nagiosplugin.Resource):
         dirvish_dir = os.path.join(self.vault_base_path, 'dirvish')
         try:
             self.check_path_accessible(dirvish_dir)
-            self.check_file_accessible(os.path.join(dirvish_dir, 'default.conf'))
+            self.check_file_accessible(os.path.join(dirvish_dir, f'{self.branch}.conf'))
         except (E_PathNotAccessible, E_FileNotAccessible):
             raise E_VaultIsNotDirvishDirectory(dirvish_dir)
 
@@ -379,10 +383,12 @@ def main():
                       help="Path to the bank of the vault (/srv/backup)")
     argp.add_argument('--max-duration', default=3600, metavar='RANGE',
                       help="max time to take a backup in seconds (3600)")
+    argp.add_argument('--branch', default="default",
+                      help="Branch to check (default)")
     argp.add_argument('vault', help='Name of the vault to check')
     args = argp.parse_args()
     check = nagiosplugin.Check(
-        Backup(args.vault, args.base_path),
+        Backup(args.vault, args.base_path, args.branch),
         BoolContext( name = 'stale_lockfile',
                      critical = True,
                      fmt_metric = Bool_Fmt_Metric('LockFile is OK!', 'LockFile is stale!')),
