@@ -65,7 +65,7 @@ class E_FileNotAccessible(Exception):
 class Backup(nagiosplugin.Resource):
     """Domain model: Dirvish vaults"""
 
-    def __init__(self, vault, base_path, branch):
+    def __init__(self, vault, base_path, branch='default'):
         self.vault = vault
         self.base_path = base_path
         self.branch = branch
