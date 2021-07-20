@@ -40,8 +40,11 @@ def backup_durations(bank, vault):
             
         except:
             continue
-        end = dateutil.parser.parse(d['backup-complete'])
-        begin = dateutil.parser.parse(d['backup-begin'])
+        try:
+            end = dateutil.parser.parse(d['backup-complete'])
+            begin = dateutil.parser.parse(d['backup-begin'])
+        except KeyError:
+            continue
         result.append((backup, end - begin))
     result.sort()
     return result
